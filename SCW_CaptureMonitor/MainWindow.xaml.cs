@@ -23,13 +23,16 @@ using System.Windows.Shapes;
 
 namespace SCW_CaptureMonitor
 {
+    public delegate void RefreshVariableDelegate(string data_text, DateTime timeCurrent);
+
     /// <summary>
     /// MainWindow.xaml 的交互逻辑
     /// </summary>
     public partial class MainWindow : Window
     {
         string appKey = "ClientApp";
-        string portKey = "Port";
+        string httpPrefixKey = "HttpPrefix";
+        string timeSpanMultipleKey = "TimeSpanMultiple";
 
         //{"intervalSecond" :10, "deviceNo": "chy", "ackType" :"", "feedback" :""}
         string httpIntervalSecondKey = "intervalSecond";
@@ -38,14 +41,13 @@ namespace SCW_CaptureMonitor
         string appFilename;
         string appFileNameWithoutExtension;
 
-        HttpListener listener = null;
-        Thread listenThread1 = null;
+        HttpRequestHandler handler = new HttpRequestHandler();
         Thread monitorThread = null;
 
         //KeyValuePair<string, DateTime> deviceLastTimes = new KeyValuePair<string,DateTime>();
         DateTime deviceLastTime = new DateTime();
         int timeInterval = 0;
-        int timeSpanMultiple = 4;
+        int timeSpanMultiple = 2;
         bool monitoring = true;
 
         public MainWindow()
@@ -55,15 +57,12 @@ namespace SCW_CaptureMonitor
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            int port = 1123;
-            int.TryParse(System.Configuration.ConfigurationManager.AppSettings[portKey], out port);
-
-            //"http://localhost:1123/captureCard/heartbeat"
-            List<string> prefixes = new List<string>();
-            prefixes.Add("http://localhost:" + port + "/");
-            prefixes.Add("http://127.0.0.1:" + port + "/");
-
             appFilename = ConfigurationManager.AppSettings[appKey];
+            if (!System.IO.File.Exists(appFilename))
+            {
+                MessageBox.Show("program path not found: " + appFilename);
+                Environment.Exit(0);
+            }
             appFileNameWithoutExtension = System.IO.Path.GetFileNameWithoutExtension(appFilename);
 
             monitorThread = new Thread(new ParameterizedThreadStart(MonitorThread));
@@ -74,8 +73,52 @@ namespace SCW_CaptureMonitor
             {
                 StartProcess(appFilename, "");
             }
+            string prefix = ConfigurationManager.AppSettings[httpPrefixKey];
+            if (null == prefix)
+            {
+                MessageBox.Show("HttpListener prefixes not found: " + httpPrefixKey);
+                Environment.Exit(0);
+            }
+            string[] prefixes = prefix.Split(';');
 
-            InvokeHttpListener(prefixes);
+            int.TryParse(ConfigurationManager.AppSettings[timeSpanMultipleKey], out timeSpanMultiple);
+            if (0 >= timeSpanMultiple)
+            {
+                timeSpanMultiple = 2;
+            }
+
+            handler.ListenAsynchronously(prefixes, RefreshVariables);
+
+            //InvokeHttpListener(prefixes);
+        }
+
+        private void Window_Closed(object sender, EventArgs e)
+        {
+            monitoring = false;
+            Thread.Sleep(1000);
+            if (null != monitorThread)
+            {
+                monitorThread.Abort();
+            }
+            if (null != handler)
+            {
+                handler.StopListening();
+            }
+        }
+
+        public void RefreshVariables(string data_text, DateTime timeCurrent)
+        {
+            var cleaned_data = System.Web.HttpUtility.UrlDecode(data_text);
+
+            // Parse the results into a JSON object
+            JObject json = JObject.Parse(cleaned_data);
+            if (0 == timeInterval)
+            {
+                int interval = json[httpIntervalSecondKey].ToObject<int>();
+                var device = json[httpDeviceNoKey].ToString();
+                timeInterval = interval < 1 ? 1 : interval;
+            }
+            deviceLastTime = timeCurrent;
         }
 
         private void MonitorThread(object s)
@@ -104,113 +147,6 @@ namespace SCW_CaptureMonitor
                     }
                 }
             }
-        }
-
-        private void Window_Closed(object sender, EventArgs e)
-        {
-            monitoring = false;
-            Thread.Sleep(1000);
-            if (null != monitorThread)
-            {
-                monitorThread.Abort();
-            }
-            if (null != listener)
-            {
-                listenThread1.Abort();
-                listener.Stop();
-                listener.Close();
-                Thread.Sleep(1000);
-            }
-        }
-
-        public void InvokeHttpListener(List<string> prefixes)
-        {
-            if (!HttpListener.IsSupported)
-            {
-                Console.WriteLine("Windows XP SP2 or Server 2003 is required to use the HttpListener class.");
-                return;
-            }
-            // URI prefixes are required,
-            // for example "http://contoso.com:8080/index/".
-            if (prefixes == null || prefixes.Count == 0)
-            {
-                throw new ArgumentException("prefixes");
-            }
-
-            // Create a listener.
-            listener = new HttpListener();
-            // Add the prefixes.
-            foreach (string s in prefixes)
-            {
-                listener.Prefixes.Add(s);
-            }
-            listener.AuthenticationSchemes = AuthenticationSchemes.Anonymous;
-            listener.Start();
-
-            listenThread1 = new Thread(new ParameterizedThreadStart(startlistener));
-            listenThread1.Start();
-        }
-
-        private void startlistener(object s)
-        {
-            while (monitoring)
-            {
-                //blocks until a client has connected to the server
-                ProcessRequest();
-            }
-        }
-
-        private void ProcessRequest()
-        {
-            try
-            {
-                var result = listener.BeginGetContext(ListenerCallback, listener);
-                result.AsyncWaitHandle.WaitOne();
-            }
-            catch (Exception)
-            {
-                //throw;
-            }
-        }
-
-        private void ListenerCallback(IAsyncResult result)
-        {
-            DateTime timeCurrent = DateTime.Now;
-            var context = listener.EndGetContext(result);
-            //Thread.Sleep(1000);
-            var data_text = new StreamReader(context.Request.InputStream,
-            context.Request.ContentEncoding).ReadToEnd();
-
-            context.Response.StatusCode = 200;
-            context.Response.StatusDescription = "OK";
-
-            //use this line to get your custom header data in the request.
-            //var headerText = context.Request.Headers["mycustomHeader"];
-
-            //use this line to send your response in a custom header
-            //context.Response.Headers["mycustomResponseHeader"] = "mycustomResponse";
-            context.Response.Close();
-
-            var cleaned_data = System.Web.HttpUtility.UrlDecode(data_text);
-            //MessageBox.Show(cleaned_data);
-
-            // Parse the results into a JSON object
-            JObject json = JObject.Parse(cleaned_data);
-            if (0 == timeInterval)
-            {
-                int interval = json[httpIntervalSecondKey].ToObject<int>();
-                var device = json[httpDeviceNoKey].ToString();
-                timeInterval = interval < 1 ? 1 : interval;
-            }
-            deviceLastTime = timeCurrent;
-
-            ////functions used to decode json encoded data.
-            //JavaScriptSerializer js = new JavaScriptSerializer();
-            //var data1 = Uri.UnescapeDataString(data_text);
-            ////string da = Regex.Unescape(data_text);
-            //var unserialized = js.Deserialize(data_text, typeof(String));
-
-            //JObject json = JObject.Parse(unserialized);
         }
 
         public static void StartProcess(string appFilename, string args)
