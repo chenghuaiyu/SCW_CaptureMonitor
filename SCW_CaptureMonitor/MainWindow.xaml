@@ -3,6 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="SinoCloudWisdom process starter and the heart beat monitor" Height="350" Width="525" Loaded="Window_Loaded" Closed="Window_Closed">
     <Grid>
-        
+        <Label Content="program to be monitored:" HorizontalAlignment="Left" Margin="37,27,0,0" VerticalAlignment="Top" Height="29" Width="230"/>
+        <TextBox x:Name="TextBoxProgram" HorizontalAlignment="Left" Height="48" Margin="66,56,0,0" TextWrapping="Wrap" Text="TextBox" VerticalAlignment="Top" Width="421" IsReadOnly="True"/>
+        <Label Content="listening:" HorizontalAlignment="Left" Margin="37,109,0,0" VerticalAlignment="Top" Width="108"/>
+        <TextBox x:Name="TextBoxHttp" HorizontalAlignment="Left" Height="56" Margin="66,134,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="421" IsReadOnly="True"/>
+        <Label Content="times:" HorizontalAlignment="Left" Margin="37,190,0,0" VerticalAlignment="Top" Width="108"/>
+        <TextBox x:Name="TextBoxTimes" HorizontalAlignment="Left" Height="23" Margin="53,216,0,0" TextWrapping="Wrap" Text="TextBox" VerticalAlignment="Top" Width="142" IsReadOnly="True"/>
+        <Label Content="client request:" HorizontalAlignment="Left" Margin="240,190,0,0" VerticalAlignment="Top" Width="160"/>
+        <TextBox x:Name="TextBoxClient" HorizontalAlignment="Left" Height="23" Margin="249,216,0,0" TextWrapping="Wrap" Text="not find any client request." VerticalAlignment="Top" Width="196" IsReadOnly="True" Visibility="Hidden"/>
+
     </Grid>
 </Window>

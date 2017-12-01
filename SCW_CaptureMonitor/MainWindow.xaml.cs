@@ -18,9 +18,12 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using log4net;
 
+[assembly: log4net.Config.XmlConfigurator(Watch = true)]
 namespace SCW_CaptureMonitor
 {
     public delegate void RefreshVariableDelegate(string data_text, DateTime timeCurrent);
@@ -45,10 +48,12 @@ namespace SCW_CaptureMonitor
         Thread monitorThread = null;
 
         //KeyValuePair<string, DateTime> deviceLastTimes = new KeyValuePair<string,DateTime>();
-        DateTime deviceLastTime = new DateTime();
+        DateTime deviceLastTime = DateTime.Now; // new DateTime();
         int timeInterval = 0;
         int timeSpanMultiple = 2;
         bool monitoring = true;
+        long requestCount = 0;
+        private static readonly ILog log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
         public MainWindow()
         {
@@ -57,12 +62,16 @@ namespace SCW_CaptureMonitor
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
+            log.Info("Application Starting");
             appFilename = ConfigurationManager.AppSettings[appKey];
+            log.Info("client app: " + appFilename);
             if (!System.IO.File.Exists(appFilename))
             {
                 MessageBox.Show("program path not found: " + appFilename);
-                Environment.Exit(0);
+                log.Info("program exit due to the path not found: " + appFilename);
+               Environment.Exit(0);
             }
+            TextBoxProgram.Text = appFilename;
             appFileNameWithoutExtension = System.IO.Path.GetFileNameWithoutExtension(appFilename);
 
             monitorThread = new Thread(new ParameterizedThreadStart(MonitorThread));
@@ -80,12 +89,17 @@ namespace SCW_CaptureMonitor
                 Environment.Exit(0);
             }
             string[] prefixes = prefix.Split(';');
+            foreach (string s in prefixes)
+            {
+                TextBoxHttp.Text += s + "\r\n";
+            }
 
             int.TryParse(ConfigurationManager.AppSettings[timeSpanMultipleKey], out timeSpanMultiple);
             if (0 >= timeSpanMultiple)
             {
                 timeSpanMultiple = 2;
             }
+            TextBoxTimes.Text = timeSpanMultiple.ToString();
 
             handler.ListenAsynchronously(prefixes, RefreshVariables);
 
@@ -94,6 +108,7 @@ namespace SCW_CaptureMonitor
 
         private void Window_Closed(object sender, EventArgs e)
         {
+            log.Info("Application closing");
             monitoring = false;
             Thread.Sleep(1000);
             if (null != monitorThread)
@@ -117,12 +132,17 @@ namespace SCW_CaptureMonitor
                 int interval = json[httpIntervalSecondKey].ToObject<int>();
                 var device = json[httpDeviceNoKey].ToString();
                 timeInterval = interval < 1 ? 1 : interval;
-            }
+                //TextBoxClient.Text = "start to listen: " + DateTime.Now.ToString();
+           }
+            log.Debug("request id: " + requestCount.ToString() + ", last time: " + deviceLastTime.ToString() + ", current: " + timeCurrent.ToString());
             deviceLastTime = timeCurrent;
+
+            requestCount++;
         }
 
         private void MonitorThread(object s)
         {
+            log.Info("start to monitor http request.");
             while (monitoring)
             {
                 if (timeInterval > 0)
@@ -131,6 +151,7 @@ namespace SCW_CaptureMonitor
                     TimeSpan tsThresh = new TimeSpan(0, 0, timeInterval * timeSpanMultiple);
                     if (timeInterval > 0 && ts > tsThresh)
                     {
+                        log.Info("time span: " + ts.ToString() + " > threshold: " + tsThresh.ToString());
                         bool bRet = KillProcess(appFileNameWithoutExtension);
                         //if (bRet)
                         {
@@ -147,12 +168,14 @@ namespace SCW_CaptureMonitor
                     }
                 }
             }
+            log.Info("end the http request monitoring.");
         }
 
         public static void StartProcess(string appFilename, string args)
         {
             try
             {
+                log.Info("start process: " + appFilename + ", with arguments: " + args);
                 ProcessStartInfo startInfo = new ProcessStartInfo(appFilename, args);
                 startInfo.WorkingDirectory = System.IO.Path.GetDirectoryName(appFilename);
 
@@ -160,7 +183,7 @@ namespace SCW_CaptureMonitor
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message + "\r\n" + ex.StackTrace, "error");
+                log.Warn("start process exception: " + ex.Message + ", StackTrace: " + ex.StackTrace);
             }
         }
 
@@ -168,20 +191,25 @@ namespace SCW_CaptureMonitor
         {
             try
             {
+                log.Info("find process  to kill: " + processName);
                 Process[] proc = Process.GetProcessesByName(processName);
                 if (proc.Count() > 0)
                 {
+                    log.Info("kill process: " + proc[0].ProcessName);
                     proc[0].Kill();
                     if (proc.Count() > 1)
                     {
                         string message = proc.Count() + " processes found which name include \"" + processName + "\", but just the first one should be terminated.";
-                    }
+                        log.Warn(message);
+                   }
                     return true;
                 }
             }
-            catch { }
+            catch(Exception ex)
+            {
+                log.Warn("kill process exception: " + ex.Message + ", StackTrace: " + ex.StackTrace);
+            }
             return false;
-
         }
     }
 }
